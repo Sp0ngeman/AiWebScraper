@@ -5,15 +5,36 @@
 ```
 ai-web-scraper/
 ├── 📄 README.md                    # Main project documentation
-├── 📄 package.json                 # NPM package configuration
+├── 📄 package.json                 # NPM package configuration (now includes dev scripts)
 ├── 📄 app.config.json             # Application configuration
 ├── 📄 start.js                    # Main startup script
 ├── 📄 config.env.example          # Configuration template
 ├── 📄 .gitignore                  # Git ignore rules
 │
-├── 📁 src/                        # Source code
+├── 📁 server/                     # Express API server (new)
+│   ├── index.js                   # API entry, CORS, routes
+│   ├── routes/
+│   │   └── scrape.js              # Scrape endpoints (Hacker News example)
+│   ├── services/
+│   │   └── scraper.js             # Puppeteer scraping logic
+│   └── utils/
+│       └── export.js              # JSON/CSV export utilities
+│
+├── 📁 client/                     # Vite + React + Tailwind frontend (new)
+│   ├── index.html
+│   ├── vite.config.js
+│   ├── package.json
+│   └── src/
+│       ├── main.jsx
+│       ├── App.jsx
+│       └── components/
+│           ├── ScrapeControls.jsx
+│           └── ResultsTable.jsx
+│
+├── 📁 src/                        # Legacy prototypes (kept)
 │   ├── chat-interface.js          # ChatGPT-style interface
 │   ├── web-gui.js                 # Web GUI interface
+│   ├── logger.js                  # Shared logging utility
 │   ├── simple-vision-scraper.js   # Simple scraper
 │   └── vision-browser-use.js      # Vision-based scraper
 │
@@ -23,25 +44,17 @@ ai-web-scraper/
 │   ├── WEB-GUI-GUIDE.md          # Web GUI guide
 │   ├── BROWSER-USE-GUIDE.md      # Browser automation guide
 │   ├── CHROME-SETUP.md           # Chrome setup guide
-│   └── USAGE.md                  # Usage documentation
+│   ├── LOGGING.md                # Logging setup and usage
+│   └── LLM-SETUP.md              # Local LLM configuration
 │
 ├── 📁 examples/                   # Example implementations
-│   ├── scraper.js                # Basic scraper example
-│   ├── enhanced-scraper.js       # Enhanced scraper example
-│   ├── custom-scraper.js         # Custom scraper example
-│   ├── gui-scraper.js            # GUI scraper example
-│   ├── web-gui-scraper.js        # Web GUI scraper example
-│   ├── chat-gui.js               # Chat GUI example
-│   ├── simple-browser-use.js     # Simple browser automation
-│   ├── browser-use-integration.js # Browser integration
-│   ├── custom-llm-integration.js # Custom LLM integration
-│   └── llm-integration.js        # LLM integration example
+│   └── ...
 │
 ├── 📁 screenshots/               # Screenshot storage
-│   └── README.md                 # Screenshot documentation
+│   └── README.md
 │
 ├── 📁 logs/                      # Application logs
-│   └── README.md                 # Log documentation
+│   └── README.md
 │
 └── 📁 node_modules/              # Dependencies (auto-generated)
 ```
@@ -53,20 +66,16 @@ ai-web-scraper/
 - **`app.config.json`**: Application configuration and settings
 - **`package.json`**: NPM package metadata and scripts
 - **`config.env.example`**: Configuration template for users
+  
+### Logging
+- **`logs/`** contains daily logs (e.g. `app-YYYYMMDD.log`) and Web GUI event log `web-gui-events.log`. Configure verbosity via `LOG_LEVEL`.
 
-### Source Code (`src/`)
-- **`chat-interface.js`**: ChatGPT-style conversational interface
-- **`web-gui.js`**: Web-based graphical user interface
-- **`simple-vision-scraper.js`**: Simple command-line scraper
-- **`vision-browser-use.js`**: Vision-based browser automation
+### Source Code
+- Legacy `src/` contains the original interfaces and remains intact.
+- New `server/` and `client/` folders provide a modern full-stack GUI and API surface.
 
 ### Documentation (`docs/`)
-- **`STARTUP-GUIDE.md`**: Complete startup instructions
-- **`CHAT-INTERFACE-GUIDE.md`**: Chat interface usage guide
-- **`WEB-GUI-GUIDE.md`**: Web GUI usage guide
-- **`BROWSER-USE-GUIDE.md`**: Browser automation guide
-- **`CHROME-SETUP.md`**: Chrome browser setup guide
-- **`USAGE.md`**: General usage documentation
+- Adds references for logging and LLM setup used by the new API/UI.
 
 ### Examples (`examples/`)
 - **`scraper.js`**: Basic web scraper implementation
@@ -88,9 +97,9 @@ ai-web-scraper/
 ## 🔧 Development Workflow
 
 ### Adding New Features
-1. Create new files in `src/` directory
-2. Update `start.js` to include new modes
-3. Add documentation in `docs/` directory
+1. Add API logic to `server/` and UI to `client/`
+2. Keep `src/` modes functional; do not break existing flows
+3. Update docs in `docs/`
 4. Update `package.json` scripts if needed
 
 ### Testing

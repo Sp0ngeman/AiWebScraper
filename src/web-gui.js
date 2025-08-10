@@ -2,6 +2,9 @@ const express = require('express');
 const puppeteer = require('puppeteer');
 const axios = require('axios');
 require('dotenv').config({ path: './config.env' });
+const fs = require('fs');
+const path = require('path');
+const { getLogger } = require('./logger');
 
 class WebGUI {
     constructor() {
@@ -12,6 +15,7 @@ class WebGUI {
         this.app = express();
         this.port = process.env.PORT || 3001;
         this.logs = [];
+        this.logger = getLogger('web-gui');
         this.isConnected = false;
         this.browser = null;
         this.page = null;
@@ -20,6 +24,9 @@ class WebGUI {
     setupExpress() {
         this.app.use(express.json());
         this.app.use(express.static('public'));
+
+        // basic health
+        this.app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
         // Serve the web GUI HTML
         this.app.get('/', (req, res) => {
@@ -98,6 +105,7 @@ class WebGUI {
                 <button class="btn btn-success" onclick="loginEForge()">🔐 Login to EForge</button>
                 <button class="btn btn-warning" onclick="takeScreenshot()">📸 Take Screenshot</button>
                 <button class="btn btn-primary" onclick="goToGoogle()">🌐 Go to Google</button>
+                <button class="btn btn-primary" onclick="runBrowserUse()">🧠 Run Browser-Use Task</button>
             </div>
             
             <div class="input-group">
@@ -172,6 +180,16 @@ class WebGUI {
         async function goToGoogle() {
             addLog('Navigating to Google...', 'info');
             await makeRequest('/api/navigate', { url: 'https://google.com' });
+        }
+
+        async function runBrowserUse() {
+            const task = prompt('Enter a natural language task for Browser-Use (e.g., "Go to Hacker News and return the first title")');
+            if (!task) return;
+            addLog('Starting Browser-Use task...', 'info');
+            const result = await makeRequest('/api/browser-use', { task });
+            if (result && result.jobId) {
+              addLog('Task submitted. Tracking job: ' + result.jobId, 'info');
+            }
         }
         
         async function executeTask() {
@@ -272,6 +290,18 @@ class WebGUI {
             }
         });
 
+        // Start a Browser-Use style task using local LLM vision analysis
+        this.app.post('/api/browser-use', async (req, res) => {
+            const { task } = req.body || {};
+            if (!task) return res.json({ success: false, message: 'Task is required' });
+            try {
+                const jobId = await this.startBrowserUseTask(task);
+                res.json({ success: true, jobId, message: 'Task accepted', connected: this.isConnected });
+            } catch (error) {
+                res.json({ success: false, message: error.message, connected: this.isConnected });
+            }
+        });
+
         this.app.post('/api/disconnect', async (req, res) => {
             try {
                 await this.disconnectBrowser();
@@ -291,8 +321,14 @@ class WebGUI {
     }
 
     addLog(message) {
-        this.logs.push({ message, timestamp: new Date() });
-        console.log(`[LOG] ${message}`);
+        const entry = { message, timestamp: new Date() };
+        this.logs.push(entry);
+        this.logger.info(message);
+        try {
+            const line = `${entry.timestamp.toISOString()} ${message}\n`;
+            const logPath = path.join(__dirname, '..', 'logs', 'web-gui-events.log');
+            fs.appendFileSync(logPath, line);
+        } catch (_) {/* ignore file log errors */}
     }
 
     async connectToBrowser() {
@@ -473,6 +509,84 @@ class WebGUI {
             this.addLog(`❌ Error executing task: ${error.message}`);
             return `❌ Task execution failed: ${error.message}`;
         }
+    }
+
+    async startBrowserUseTask(task) {
+        // Minimal local LLM powered stepper: screenshot → analyze → act (repeat once)
+        if (!this.isConnected) {
+            await this.connectToBrowser();
+        }
+        const initialScreenshot = await this.takeScreenshot();
+        const analysis = await this.analyzeScreenshotWithLLM(initialScreenshot, task);
+        this.addLog(`🤖 LLM analysis: ${analysis?.slice(0, 300) || 'n/a'}...`);
+        // naive action routing
+        const lowerTask = task.toLowerCase();
+        if (lowerTask.includes('click')) {
+            await this.clickCommon();
+        } else if (lowerTask.includes('type')) {
+            await this.typeIntoCommon(task);
+        } else if (lowerTask.includes('navigate') || lowerTask.includes('go to')) {
+            const urlMatch = task.match(/https?:\/\/[^\s]+/);
+            if (urlMatch) await this.navigateToWebsite(urlMatch[0]);
+        }
+        await this.takeScreenshot();
+        const jobId = `job_${Date.now()}`;
+        return jobId;
+    }
+
+    async analyzeScreenshotWithLLM(screenshotPath, task) {
+        try {
+            const buf = fs.readFileSync(screenshotPath);
+            const base64Image = buf.toString('base64');
+            const body = {
+                model: this.localLLMModel,
+                messages: [
+                    { role: 'system', content: `You analyze browser screenshots and suggest concrete next UI actions for task: ${task}.` },
+                    { role: 'user', content: [
+                        { type: 'text', text: `Analyze this screenshot for the task: ${task}` },
+                        { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }
+                    ] }
+                ],
+                max_tokens: 600,
+                temperature: 0.7,
+            };
+            const resp = await axios.post(`${this.localLLMUrl}/v1/chat/completions`, body, { headers: { 'Content-Type': 'application/json' }, timeout: 120000 });
+            const content = resp?.data?.choices?.[0]?.message?.content;
+            return content || null;
+        } catch (err) {
+            this.addLog(`❌ LLM analysis error: ${err.message}`);
+            return null;
+        }
+    }
+
+    async clickCommon() {
+        const commonSelectors = ['button', 'a', 'input[type="submit"]', '.btn', '.button'];
+        for (const selector of commonSelectors) {
+            try {
+                await this.page.waitForSelector(selector, { timeout: 1500 });
+                await this.page.click(selector);
+                this.addLog(`✅ Clicked element using selector: ${selector}`);
+                return true;
+            } catch (_) {}
+        }
+        this.addLog('❌ No clickable element found');
+        return false;
+    }
+
+    async typeIntoCommon(task) {
+        const m = task.match(/type\s+(.+)/i);
+        const text = m ? m[1] : '';
+        const inputSelectors = ['input[type="text"]', 'input[type="email"]', 'textarea', 'input'];
+        for (const selector of inputSelectors) {
+            try {
+                await this.page.waitForSelector(selector, { timeout: 1500 });
+                await this.page.type(selector, text);
+                this.addLog(`✅ Typed into ${selector}`);
+                return true;
+            } catch (_) {}
+        }
+        this.addLog('❌ No input found to type into');
+        return false;
     }
 
     async disconnectBrowser() {
